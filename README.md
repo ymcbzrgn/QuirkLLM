@@ -65,7 +65,8 @@
 15. [Roadmap](#-roadmap)
 16. [Kurulum](#-kurulum)
 17. [Kararlar](#-kararlar)
-18. [Lisans](#-lisans)
+18. [Katkıda Bulunma](#-katkıda-bulunma)
+19. [Lisans](#-lisans)
 
 ---
 
@@ -1561,12 +1562,17 @@ rag:
 
 ---
 
+# 🤝 KATKIDA BULUNMA
+
+- Yeni özellik veya davranış eklerken önce [`CONTRIBUTING.md`](./CONTRIBUTING.md) rehberini takip et. README bu projenin ürün spesidir; kodla birlikte güncellenmelidir.
+- Tüm katkılar [CLI-first mimari](#-mimari) hattından (System Detector → Profile Manager → CLI → Analyzer → Conversation Engine → Adaptive Inference → Adaptive RAG → Output Handler) geçmelidir.
+- RAM profilleri, RAG kapasitesi ve mod tablolarını değiştiriyorsan ilgili bölümleri bu dosyada senkronize et ve `ROADMAP.md` üzerindeki kilometre taşlarını işaretle.
+- Her PR için testleri (`pytest`, `quirkllm --test`) ve Codacy CLI denetimlerini çalıştır. Paket eklediğinde güvenlik taraması için `tool=trivy` parametresiyle tekrar çalıştır.
+- Topluluk davranışları için [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) dokümanına göz at ve sorunlu durumları oradaki kanallardan raporla.
+
 # 📄 LİSANS
 
-```
-Apache License 2.0
-Copyright 2024 QuirkLLM
-```
+Kaynak kodu ve belgeler [Apache License 2.0](./LICENSE) ile lisanslanmıştır. Projeyi kullanmadan veya dağıtmadan önce lisans şartlarını okuduğundan emin ol.
 
 ---
 
