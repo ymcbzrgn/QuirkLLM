@@ -648,6 +648,8 @@ $ quirkllm
 │                                                                         │
 ╰─────────────────────────────────────────────────────────────────────────╯
 
+```
+
 ## 8. 📚 Knowledge Eater (Lokal Doküman Yiyici)
 
 İnternet yok mu? Özel dokümantasyon mu var? Sorun değil. QuirkLLM istediğiniz kaynağı "yutup" lokal vektör veritabanına ekler.
