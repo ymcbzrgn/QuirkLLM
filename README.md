@@ -677,7 +677,6 @@ QuirkLLM sadece bir asistan değil, aynı zamanda bir **Model Context Protocol (
    • Capabilities: Resources, Tools, Prompts
    • Connected: Claude Desktop can now see your local repo!
 ```
-```
 
 ---
 
