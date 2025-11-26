@@ -1,7 +1,39 @@
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
 
-#Ignore vscode AI rules
+# Poetry
+poetry.lock
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# QuirkLLM specific
+.quirkllm/
+docs/
+
+# VSCode AI rules
 .github/instructions/codacy.instructions.md
 .github/
 .codacy/
-.vscode/
+
+.ruff_cache/
+.mypy_cache/

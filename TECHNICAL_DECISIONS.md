@@ -306,6 +306,152 @@ $ quirkllm --quantization Q8_0
 
 ---
 
+## 🖥️ Platform-Aware RAM Detection
+
+### Decision: **Hybrid Strategy - macOS vs Linux/Windows**
+
+**Problem Discovered**: Different OS'ler RAM'i farklı yönetir. macOS'ta "available RAM" yanıltıcı olabilir.
+
+#### The macOS Challenge
+
+```bash
+# macOS M1, 16 GB total RAM
+$ system_profiler SPHardwareDataType | grep Memory
+Memory: 16 GB
+
+# psutil ile kontrol
+$ python -c "import psutil; print(psutil.virtual_memory())"
+# available: 5 GB  (macOS aggressive caching)
+# used: 11 GB
+```
+
+**Sorun**: 16 GB sistemi 5 GB available gösteriyor → Survival mode seçiliyor ❌  
+**Beklenen**: 16 GB sistem → Comfort mode olmalı ✅
+
+#### Platform Differences
+
+| Platform | Memory Management | Strategy |
+|----------|-------------------|----------|
+| **macOS** | Aggressive compression, fast SSD swap, smart file cache | Use **Total RAM** |
+| **Linux** | Traditional swap, varies by distro | Use **Available RAM** |
+| **Windows** | PageFile variability, conservative | Use **Available RAM** |
+
+#### Solution: Platform-Aware Profile Selection
+
+```python
+def select_profile(system_info: SystemInfo, override: str | None = None):
+    """Select profile based on platform-aware RAM detection."""
+    
+    # Platform-aware RAM decision
+    if system_info.platform == "darwin":
+        # macOS: Use total RAM (aggressive memory management)
+        decision_ram = system_info.total_ram_gb
+    else:
+        # Linux/Windows: Use adjusted available RAM (conservative)
+        decision_ram = system_info.adjusted_ram_gb
+    
+    # Same thresholds for all platforms
+    if decision_ram < 8:
+        return ProfileType.SURVIVAL
+    elif decision_ram < 24:
+        return ProfileType.COMFORT
+    elif decision_ram < 48:
+        return ProfileType.POWER
+    else:
+        return ProfileType.BEAST
+```
+
+#### Why macOS is Different
+
+**Technical Reasons**:
+
+1. **Memory Compression**  
+   macOS agresif RAM sıkıştırması yapar. "Available" düşük görünür ama sistem gerektiğinde milisaniyeler içinde boşaltabilir.
+
+2. **Fast SSD Swap**  
+   M1/M2/M3'te unified memory architecture + NVMe SSD = ~7 GB/s swap hızı. Traditional swap (100-200 MB/s) gibi değil.
+
+3. **Smart File Caching**  
+   macOS file cache'i agresif tutar ama "reclaimable" olarak işaretler. Uygulama isterse anında bırakır.
+
+4. **Memory Pressure System**  
+   macOS "available RAM" yerine "memory pressure" (green/yellow/red) kullanır. Baskı düşükse, available düşük olsa bile sorun yok.
+
+#### Real-World Examples
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Example 1: macOS MacBook Pro M2, 16 GB                    │
+├─────────────────────────────────────────────────────────────┤
+│  Total: 16 GB                                               │
+│  Available: 5 GB (heavy use)                                │
+│  Decision: 16 GB total → COMFORT MODE ✅                    │
+│  Reason: macOS can free up RAM instantly when needed       │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  Example 2: Linux Desktop, 16 GB                            │
+├─────────────────────────────────────────────────────────────┤
+│  Total: 16 GB                                               │
+│  Available: 5 GB (heavy use)                                │
+│  Decision: 5 GB available → SURVIVAL MODE ✅                │
+│  Reason: Traditional swap is slow, be conservative          │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  Example 3: Windows 11, 32 GB                               │
+├─────────────────────────────────────────────────────────────┤
+│  Total: 32 GB                                               │
+│  Available: 12 GB                                           │
+│  Decision: 12 GB available → COMFORT MODE ✅                │
+│  Reason: Enough headroom, safe to use Comfort              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### User Override
+
+Kullanıcılar hala manuel override yapabilir:
+
+```bash
+# Force Survival mode on macOS (testing)
+$ quirkllm --profile survival
+
+# Force Power mode (if you know you have free RAM)
+$ quirkllm --profile power
+```
+
+#### README Alignment
+
+README'deki profil threshold'ları şimdi platform-aware:
+
+```
+🟡 SURVIVAL MODE
+  macOS: < 8 GB total RAM
+  Linux/Windows: < 8 GB available RAM
+
+🟢 COMFORT MODE (Recommended)
+  macOS: 8-24 GB total RAM
+  Linux/Windows: 8-24 GB available RAM
+
+🔵 POWER MODE
+  macOS: 24-48 GB total RAM
+  Linux/Windows: 24-48 GB available RAM
+
+🟣 BEAST MODE
+  macOS: 48+ GB total RAM
+  Linux/Windows: 48+ GB available RAM
+```
+
+**Rationale**:
+- ✅ Respects OS-specific memory management philosophies
+- ✅ Better user experience on macOS (no surprising Survival mode on 16 GB systems)
+- ✅ Conservative on Linux/Windows (safer on varied hardware)
+- ✅ Manual override available for power users
+
+**Status**: ✅ Finalized (Phase 1 Week 1 implementation)
+
+---
+
 ## 🎯 Model Distribution
 
 ### Decision: **HuggingFace Hub + Manifest-Based Versioning**

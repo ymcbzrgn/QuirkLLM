@@ -130,9 +130,51 @@ $ quirkllm   # Claude Code CLI gibi, ama lokal ve ücretsiz
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 4 RAM Profili (Boşta Olan RAM'e Göre)
+## 4 RAM Profili
 
-### 🟡 SURVIVAL MODE (< 8GB Available)
+### 🎯 Platform-Aware Profil Seçimi
+
+QuirkLLM, farklı işletim sistemlerinin RAM yönetim stratejilerini anlayarak **akıllı profil seçimi** yapar:
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  PLATFORM-AWARE PROFILE SELECTION                                    │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  🍎 macOS (darwin)                                                   │
+│  ──────────────────                                                  │
+│  Strategy: TOTAL RAM bazlı profil seçimi                            │
+│  Reason  : Aggressive memory compression + fast SSD swap            │
+│  Example : 16 GB total → COMFORT (available RAM önemsiz)            │
+│                                                                      │
+│  🐧 Linux                                                            │
+│  ────────                                                            │
+│  Strategy: AVAILABLE RAM bazlı profil seçimi (conservative)         │
+│  Reason  : Traditional swap, slow on low-end systems                │
+│  Example : 16 GB total, 5 GB available → SURVIVAL (güvenli)         │
+│                                                                      │
+│  🪟 Windows                                                          │
+│  ──────────                                                          │
+│  Strategy: AVAILABLE RAM bazlı profil seçimi (conservative)         │
+│  Reason  : PageFile variability, conservative approach safer        │
+│  Example : 16 GB total, 8 GB available → COMFORT                    │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**Neden macOS farklı?**
+- ✅ **Memory Compression**: macOS RAM'i agresif sıkıştırır, "available" düşük görünür ama gerektiğinde anında boşaltır
+- ✅ **Smart Caching**: File cache'i dinamik yönetir, gerektiğinde milisaniyeler içinde temizler  
+- ✅ **Fast Swap**: M1/M2/M3'te SSD swap çok hızlı (~7 GB/s), performans kaybı minimal
+- ✅ **Memory Pressure System**: "Available RAM" tek başına yeterli metrik değil, sistem baskı bazlı karar verir
+
+**Sonuç**: 16 GB macOS sisteminiz %70 kullanımda olsa bile, QuirkLLM sizi **Comfort Mode**'da çalıştırır çünkü sistem gerektiğinde RAM'i hızla boşaltabilir. Linux/Windows'ta ise daha konservatif davranır.
+
+---
+
+### 🟡 SURVIVAL MODE (< 8GB Total RAM)
+**macOS**: 8 GB'dan az total RAM  
+**Linux/Windows**: 8 GB'dan az available RAM
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -179,7 +221,9 @@ $ quirkllm   # Claude Code CLI gibi, ama lokal ve ücretsiz
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 🟢 COMFORT MODE (8GB - 24GB Available) - ÖNERİLEN
+### 🟢 COMFORT MODE (8GB - 24GB) - ÖNERİLEN
+**macOS**: 8-24 GB total RAM  
+**Linux/Windows**: 8-24 GB available RAM
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -228,7 +272,9 @@ $ quirkllm   # Claude Code CLI gibi, ama lokal ve ücretsiz
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 🔵 POWER MODE (24GB - 48GB Available)
+### 🔵 POWER MODE (24GB - 48GB)
+**macOS**: 24-48 GB total RAM  
+**Linux/Windows**: 24-48 GB available RAM
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -276,7 +322,9 @@ $ quirkllm   # Claude Code CLI gibi, ama lokal ve ücretsiz
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 🟣 BEAST MODE (48GB+ Available)
+### 🟣 BEAST MODE (48GB+)
+**macOS**: 48+ GB total RAM  
+**Linux/Windows**: 48+ GB available RAM
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -1166,37 +1214,222 @@ def calculate_context_length(available_ram_gb, quantization):
 
 # 💻 CLI KOMUTLARI
 
-## Slash Komutları
+## Başlatma
+
+```bash
+# Basit başlatma (otomatik profil seçimi)
+$ quirkllm
+
+# Debug mode
+$ quirkllm --debug
+
+# Manuel profil seçimi
+$ quirkllm --profile power
+
+# Özel config dosyası
+$ quirkllm --config ~/.my-quirk-config.yaml
+
+# Versiyon bilgisi
+$ quirkllm --version
+```
+
+## Slash Komutları (Phase 1 - Implemented ✅)
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  AVAILABLE COMMANDS                                                │
+├────────────────────────────────────────────────────────────────────┤
+│                                                                    │
+│  /help (aliases: ?, h)                                            │
+│  ─────────────────────                                            │
+│  Show available commands and usage                                │
+│  Example: /help                                                   │
+│                                                                    │
+│  /status (aliases: info, stat)                                    │
+│  ──────────────────────────────                                   │
+│  Display system and profile information                           │
+│  Shows: RAM usage, GPU status, active profile, all settings       │
+│  Example: /status                                                 │
+│                                                                    │
+│  /quit (aliases: exit, q)                                         │
+│  ─────────────────────────                                        │
+│  Exit QuirkLLM gracefully                                         │
+│  Example: /quit                                                   │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+### Example Session
+
+```bash
+$ quirkllm
+
+╭──────────────────────────────────────────╮
+│ QuirkLLM - RAM-Aware AI Coding Assistant │
+│ Version 0.1.0                            │
+╰──────────────────────────────────────────╯
+
+               System Information               
+ Platform      darwin/arm                       
+ RAM           16.0 GB total / 5.6 GB available 
+ Adjusted RAM  3.6 GB (12.4 GB reserved)        
+ GPU           CUDA: ✗ | Metal: ✓               
+
+        Active Profile         
+ Profile         🎯 Comfort    
+ Context Length  32,768 tokens 
+ Quantization    Q4_K_M        
+ Batch Size      4             
+ RAG Cache       500 MB        
+ KV Cache        4 GB          
+ Expected Speed  ~5 tokens/sec 
+
+Type /help for commands or start chatting!
+
+quirk> /help
+
+                       Available Commands                        
+┏━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Command ┃ Aliases    ┃ Description                            ┃
+┡━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ /help   │ ?, h       │ Show available commands and usage      │
+│ /status │ info, stat │ Display system and profile information │
+│ /quit   │ exit, q    │ Exit QuirkLLM                          │
+└─────────┴────────────┴────────────────────────────────────────┘
+
+💡 Tip: Commands start with /. Everything else is treated as a chat message.
+
+quirk> /status
+
+               System Status                
+ Platform       darwin/arm                  
+ Total RAM      16.00 GB                    
+ Available RAM  5.69 GB                     
+ Adjusted RAM   3.69 GB (12.31 GB reserved) 
+ CUDA           ✗ Not available             
+ Metal          ✓ Available                 
+
+         Active Profile         
+ Name             🎯 Comfort    
+ Context Length   32,768 tokens 
+ Quantization     Q4_K_M        
+ Batch Size       4             
+ RAG Cache        500 MB        
+ KV Cache         4 GB          
+ Embedding Model  base          
+ Concurrent Ops   2             
+ Compaction Mode  smart         
+ Model Loading    hybrid        
+ Expected Speed   ~5 tokens/sec 
+
+quirk> /quit
+
+👋 Goodbye!
+```
+
+## Tüm Slash Komutları (Roadmap)
+
+### 🟢 Temel Komutlar (Phase 1 - ✅ Implemented)
+
+| Komut | Aliases | Açıklama | Örnek |
+|-------|---------|----------|-------|
+| `/help` | `?`, `h` | Yardım menüsü ve komut listesi | `/help` |
+| `/status` | `info`, `stat` | Sistem ve profil durumu (RAM, GPU, context, cache) | `/status` |
+| `/quit` | `exit`, `q` | QuirkLLM'den çık | `/quit` |
+
+### 🔵 Model & Context Komutları (Phase 2)
 
 | Komut | Açıklama | Örnek |
 |-------|----------|-------|
-| `/help` | Yardım menüsü | `/help` |
-| `/status` | Sistem durumu (RAM, context, cache) | `/status` |
-| `/profile` | Profil değiştir/göster | `/profile power` |
-| `/compact` | Compact mode toggle | `/compact on` |
-| `/verbose` | Verbose mode toggle | `/verbose on` |
-| `/context` | Mevcut context'i göster | `/context` |
-| `/clear` | Konuşmayı temizle | `/clear` |
-| `/reset` | Tüm state'i sıfırla | `/reset` |
-| `/save` | Session'ı kaydet | `/save mysession` |
-| `/load` | Session yükle | `/load mysession` |
+| `/profile <name>` | Profil değiştir (survival/comfort/power/beast) | `/profile power` |
+| `/mode <type>` | Quantization mode (4bit/8bit) | `/mode 8bit` |
+| `/context` | Mevcut context window'u ve kullanımı göster | `/context` |
+| `/compact` | Compaction mode toggle (aggressive/smart/relaxed) | `/compact smart` |
+| `/verbose` | Verbose output mode toggle | `/verbose on` |
+| `/clear` | Konuşma geçmişini temizle (RAM'i boşalt) | `/clear` |
+| `/reset` | Tüm state'i sıfırla (context + cache + session) | `/reset` |
+
+### 🟡 Session & File Komutları (Phase 3)
+
+| Komut | Açıklama | Örnek |
+|-------|----------|-------|
+| `/save <name>` | Mevcut session'ı kaydet | `/save auth-refactor` |
+| `/load <name>` | Kayıtlı session'ı yükle | `/load auth-refactor` |
 | `/sessions` | Kayıtlı session'ları listele | `/sessions` |
-| `/mode` | Quantization mode | `/mode 8bit` |
-| `/offline` | Offline mode toggle | `/offline` |
-| `/diff` | Son değişiklikleri göster | `/diff` |
+| `/diff` | Son yapılan değişiklikleri göster | `/diff` |
 | `/undo` | Son değişikliği geri al | `/undo` |
+| `/redo` | Geri alınan değişikliği tekrar uygula | `/redo` |
 | `/files` | Değiştirilen dosyaları listele | `/files` |
-| `/tree` | Proje yapısını göster | `/tree` |
+| `/tree` | Proje dosya yapısını göster | `/tree src/` |
+| `/search <query>` | Projede kod arama | `/search useEffect` |
+
+### 🟠 Mode Komutları (Phase 4)
+
+| Komut | Açıklama | Örnek |
+|-------|----------|-------|
+| `/yami` | YAMI mode'a geç (auto-accept) | `/yami` |
+| `/chat` | Chat mode'a geç (default, confirm) | `/chat` |
+| `/plan` | Plan mode'a geç (read-only, generates docs) | `/plan` |
+| `/ghost` | Ghost mode'a geç (watcher mode) | `/ghost` |
+| `/watch <path>` | Dosya/klasör izlemeye başla | `/watch src/` |
+| `/unwatch <path>` | Dosya/klasör izlemeyi durdur | `/unwatch src/` |
+
+### 🟣 Knowledge Eater Komutları (Phase 5)
+
+| Komut | Açıklama | Örnek |
+|-------|----------|-------|
+| `/learn --url <url>` | Web dökümantasyonu indir ve öğren | `/learn --url https://react.dev` |
+| `/learn --pdf <path>` | PDF dökümantasyon öğren | `/learn --pdf ./docs/api.pdf` |
+| `/knowledge` | Öğrenilmiş bilgi kaynaklarını listele | `/knowledge` |
+| `/forget <source>` | Bilgi kaynağını sil | `/forget react-docs` |
+| `/reindex` | RAG index'i yeniden oluştur | `/reindex` |
+
+### 🔧 Debug & Config Komutları (Phase 2-3)
+
+| Komut | Açıklama | Örnek |
+|-------|----------|-------|
 | `/config` | Ayarları göster/değiştir | `/config` |
-| `/quit` | Çıkış | `/quit` |
+| `/config set <key> <value>` | Ayar değiştir | `/config set theme dark` |
+| `/offline` | Offline mode toggle (RAG only) | `/offline` |
+| `/benchmark` | Inference hız testi | `/benchmark` |
+| `/cache` | Cache istatistikleri göster | `/cache` |
+| `/cache clear` | Cache'i temizle | `/cache clear` |
+| `/logs` | Son log mesajlarını göster | `/logs` |
+| `/debug` | Debug mode toggle | `/debug on` |
 
-## Özel Prefixler
+## Özel Prefixler (Phase 3)
 
-| Prefix | Açıklama | Örnek |
-|--------|----------|-------|
-| `@file` | Dosya referansı | `@src/App.tsx explain this` |
-| `#line` | Satır referansı | `fix error on #23` |
-| `!command` | Shell komutu | `!yarn test` |
+| Prefix | Açıklama | Örnek | Phase |
+|--------|----------|-------|-------|
+| `@file` | Dosya referansı | `@src/App.tsx explain this component` | Phase 3 |
+| `#line` | Satır referansı | `fix error on #23` | Phase 3 |
+| `!command` | Shell komutu çalıştır | `!yarn add lodash` | Phase 3 |
+| `$var` | Değişken referansı | `explain $userId usage` | Phase 3 |
+| `^func` | Fonksiyon referansı | `optimize ^calculateTotal` | Phase 3 |
+
+## Doğal Dil Komutları (AI Parse)
+
+QuirkLLM aşağıdaki doğal dil komutlarını da anlayabilir:
+
+```
+"show me system status"         → /status
+"what's my current profile?"    → /status
+"switch to power mode"          → /profile power  
+"save this as bugfix session"  → /save bugfix
+"clear the conversation"        → /clear
+"exit" / "bye" / "goodbye"     → /quit
+"help me" / "what can you do?" → /help
+```
+
+## Keyboard Shortcuts (Terminal)
+
+| Shortcut | Açıklama |
+|----------|----------|
+| `Ctrl+C` | Mevcut işlemi iptal et (REPL'de yeni satır) |
+| `Ctrl+D` | QuirkLLM'den çık (EOF) |
+| `↑` / `↓` | Komut geçmişinde gezin |
+| `Tab` | Komut tamamlama (gelecek) |
+| `Ctrl+R` | Komut geçmişinde arama (gelecek) |
 
 ---
 
