@@ -182,13 +182,13 @@ class ActionHandler:
         Returns:
             True if execution needed, False otherwise
         """
-        # Read-only modes don't need execution
-        if not self.current_mode.config.allow_file_edits:
-            return False
-        
-        # File operations need execution
-        if request.action_type in ["file_read", "file_write", "file_edit", "file_delete", "create_file"]:
+        # Read operations are always executed (even in read-only modes)
+        if request.action_type in ["file_read", "read_file"]:
             return True
+        
+        # Write operations need write permission
+        if request.action_type in ["file_write", "file_edit", "file_delete", "file_create", "create_file"]:
+            return self.current_mode.config.allow_file_edits
         
         # Commands need execution
         if request.action_type == "command":
@@ -207,7 +207,8 @@ class ActionHandler:
         """
         action_type = request.action_type
         
-        if action_type == "file_read":
+        # Handle action type aliases
+        if action_type in ["file_read", "read_file"]:
             return self._execute_file_read(request)
         elif action_type == "file_write":
             return self._execute_file_write(request)
@@ -215,7 +216,7 @@ class ActionHandler:
             return self._execute_file_edit(request)
         elif action_type == "file_delete":
             return self._execute_file_delete(request)
-        elif action_type == "create_file":
+        elif action_type in ["file_create", "create_file"]:
             return self._execute_file_create(request)
         elif action_type == "command":
             return self._execute_command(request)

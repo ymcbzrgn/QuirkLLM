@@ -97,7 +97,7 @@ class YAMIMode(ModeBase):
         Shows warning about auto-accept behavior and safety features.
         Resets session statistics.
         """
-        self.active = True
+        self._active = True
         
         # Reset session stats
         self.session_stats = {
@@ -125,7 +125,7 @@ class YAMIMode(ModeBase):
         
         Shows summary of actions executed, warned, and blocked.
         """
-        self.active = False
+        self._active = False
         
         # Display session summary
         stats_table = Table(title="YAMI Session Summary", show_header=True)

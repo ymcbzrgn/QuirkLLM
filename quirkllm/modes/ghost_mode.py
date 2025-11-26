@@ -263,7 +263,7 @@ class GhostMode(ModeBase):
         Starts background thread monitoring file system for changes.
         Displays activation message with watch configuration.
         """
-        self.active = True
+        self._active = True
         
         # Reset session stats
         self.session_stats = {
@@ -301,7 +301,7 @@ class GhostMode(ModeBase):
         Stops background thread and displays session summary with
         detected changes and analysis queue.
         """
-        self.active = False
+        self._active = False
         self.watching.clear()
         self.session_stats["watcher_active"] = False
         

@@ -257,7 +257,7 @@ class PlanMode(ModeBase):
         Shows plan output directory and read-only status.
         Resets session statistics.
         """
-        self.active = True
+        self._active = True
         
         # Reset session stats
         self.session_stats = {
@@ -286,7 +286,7 @@ class PlanMode(ModeBase):
         
         Shows list of generated plans with file paths.
         """
-        self.active = False
+        self._active = False
         
         if self.session_stats["plans_generated"] > 0:
             # Display session summary
