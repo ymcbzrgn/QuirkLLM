@@ -7,13 +7,19 @@ from dataclasses import dataclass
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
 
 from quirkllm.core.profile_manager import ProfileConfig
 from quirkllm.core.system_detector import SystemInfo
-
-console = Console()
+from quirkllm.core.config import Config, load_config, save_config
+from quirkllm.modes import (
+    ModeBase,
+    ModeType,
+    get_registry,
+)
 
 
 @dataclass
@@ -33,6 +39,7 @@ class REPL:
         self,
         system_info: SystemInfo,
         profile_config: ProfileConfig,
+        config: Config | None = None,
         debug: bool = False,
     ):
         """Initialize REPL.
@@ -40,22 +47,136 @@ class REPL:
         Args:
             system_info: System detection results
             profile_config: Selected profile configuration
+            config: User configuration (loaded from ~/.quirkllm/config.yaml)
             debug: Enable debug mode
         """
         self.system_info = system_info
         self.profile_config = profile_config
+        self.config = config or load_config()
         self.debug = debug
         self.running = False
+        self.console = Console()  # Instance variable for testability
 
-        # Initialize prompt session with history
+        # Initialize mode system
+        self.mode_registry = get_registry()
+        self.current_mode: ModeBase | None = None
+        self._current_command_args = ""  # For passing args to command handlers
+        self._initialize_mode()
+
+        # Initialize prompt session with history and key bindings
         self.history = InMemoryHistory()
+        self.key_bindings = self._create_key_bindings()
         self.session: PromptSession[str] = PromptSession(
             history=self.history,
             auto_suggest=AutoSuggestFromHistory(),
+            key_bindings=self.key_bindings,
         )
 
         # Register commands
         self.commands = self._register_commands()
+
+    def _initialize_mode(self) -> None:
+        """Initialize the current mode from config."""
+        # Get mode from config or default to CHAT
+        mode_name = self.config.mode if self.config else "chat"
+        mode_type = ModeType(mode_name.lower())
+        
+        # Create mode instance
+        self.current_mode = self.mode_registry.create_mode(mode_type, self.config)
+        
+        # Activate mode
+        if self.current_mode:
+            self.current_mode.activate()
+
+    def _create_key_bindings(self) -> KeyBindings:
+        """Create custom key bindings for REPL.
+        
+        Returns:
+            KeyBindings with Shift+Tab for mode cycling
+        """
+        kb = KeyBindings()
+        
+        @kb.add('s-tab')  # Shift+Tab
+        def cycle_mode(event) -> None:
+            """Cycle through modes: chat -> yami -> plan -> ghost -> chat."""
+            self._cycle_mode()
+            # Refresh prompt to show new mode indicator
+            event.app.invalidate()
+        
+        return kb
+
+    def _cycle_mode(self) -> None:
+        """Cycle to the next mode in sequence."""
+        if not self.current_mode:
+            return
+        
+        # Define cycle order
+        mode_cycle = [
+            ModeType.CHAT,
+            ModeType.YAMI,
+            ModeType.PLAN,
+            ModeType.GHOST,
+        ]
+        
+        # Find current position and get next
+        try:
+            current_idx = mode_cycle.index(self.current_mode.mode_type)
+            next_idx = (current_idx + 1) % len(mode_cycle)
+            next_mode_type = mode_cycle[next_idx]
+        except ValueError:
+            # Fallback to CHAT if current mode not in cycle
+            next_mode_type = ModeType.CHAT
+        
+        # Switch to next mode
+        self.switch_mode(next_mode_type)
+        
+        # Display mode change notification
+        self.console.print(
+            f"\n[cyan]🔄 Mode switched to:[/cyan] [bold]{next_mode_type.value.upper()}[/bold] "
+            f"{self.current_mode.get_prompt_indicator() if self.current_mode else ''}\n"
+        )
+
+    def switch_mode(self, mode_type: ModeType) -> bool:
+        """Switch to a different mode.
+        
+        Args:
+            mode_type: Target mode type
+            
+        Returns:
+            True if switch successful, False otherwise
+        """
+        # Deactivate current mode
+        if self.current_mode:
+            self.current_mode.deactivate()
+        
+        # Create and activate new mode
+        try:
+            self.current_mode = self.mode_registry.create_mode(mode_type, self.config)
+            if self.current_mode:
+                self.current_mode.activate()
+                
+                # Persist mode to config
+                self.config.mode = mode_type.value
+                save_config(self.config)
+                
+                return True
+        except Exception as e:
+            self.console.print(f"[red]✗ Failed to switch mode: {e}[/red]")
+            if self.debug:
+                self.console.print_exception()
+        
+        return False
+
+    def _get_prompt_text(self) -> str:
+        """Get the prompt text with current mode indicator.
+        
+        Returns:
+            Prompt string with mode emoji
+        """
+        if self.current_mode:
+            indicator = self.current_mode.get_prompt_indicator()
+            return f"{indicator} quirk> "
+        return "quirk> "
 
     def _register_commands(self) -> dict[str, Command]:
         """Register all available REPL commands.
@@ -75,6 +196,12 @@ class REPL:
                 description="Display system and profile information",
                 handler=self._cmd_status,
                 aliases=["info", "stat"],
+            ),
+            Command(
+                name="mode",
+                description="Switch mode or show current mode (chat/yami/plan/ghost)",
+                handler=self._cmd_mode,
+                aliases=["m"],
             ),
             Command(
                 name="quit",
@@ -111,14 +238,14 @@ class REPL:
             aliases_str = ", ".join(cmd.aliases) if cmd.aliases else "-"
             table.add_row(f"/{cmd.name}", aliases_str, cmd.description)
 
-        console.print()
-        console.print(table)
-        console.print()
-        console.print(
+        self.console.print()
+        self.console.print(table)
+        self.console.print()
+        self.console.print(
             "[dim]💡 Tip: Commands start with [bold]/[/bold]. "
             "Everything else is treated as a chat message.[/dim]"
         )
-        console.print()
+        self.console.print()
 
     def _cmd_status(self) -> None:
         """Display system and profile status."""
@@ -159,15 +286,150 @@ class REPL:
             "Expected Speed", f"~{self.profile_config.expected_speed_toks} tokens/sec"
         )
 
-        console.print()
-        console.print(sys_table)
-        console.print()
-        console.print(prof_table)
-        console.print()
+        self.console.print()
+        self.console.print(sys_table)
+        self.console.print()
+        self.console.print(prof_table)
+        self.console.print()
+
+    def _cmd_mode(self) -> None:
+        """Display current mode or switch to a different mode.
+        
+        Usage:
+            /mode          - Show current mode
+            /mode <name>   - Switch to mode (chat, yami, plan, ghost)
+        """
+        args = getattr(self, '_current_command_args', '').strip()
+        
+        # No args: show current mode
+        if not args:
+            self._display_current_mode()
+            return
+        
+        # Parse mode name
+        mode_name = args.lower()
+        
+        # Validate mode name
+        valid_modes = ["chat", "yami", "plan", "ghost"]
+        if mode_name not in valid_modes:
+            self.console.print(
+                f"[red]✗ Invalid mode: {mode_name}[/red]\n"
+                f"[dim]Valid modes: {', '.join(valid_modes)}[/dim]\n"
+            )
+            return
+        
+        # Convert to ModeType
+        mode_type = ModeType(mode_name)
+        
+        # Check if already in this mode
+        if self.current_mode and self.current_mode.mode_type == mode_type:
+            self.console.print(f"\n[yellow]Already in {mode_name.upper()} mode.[/yellow]\n")
+            return
+        
+        # Switch mode
+        self.console.print(f"\n[cyan]Switching to {mode_name.upper()} mode...[/cyan]")
+        if self.switch_mode(mode_type):
+            self.console.print(
+                f"[green]✓ Mode switched successfully![/green] "
+                f"{self.current_mode.get_prompt_indicator() if self.current_mode else ''}\n"
+            )
+            # Show mode details
+            self._display_mode_info(mode_type)
+        else:
+            self.console.print("[red]✗ Failed to switch mode.[/red]\n")
+
+    def _display_current_mode(self) -> None:
+        """Display information about the current mode."""
+        if not self.current_mode:
+            self.console.print("\n[red]No mode active.[/red]\n")
+            return
+        
+        mode_type = self.current_mode.mode_type
+        indicator = self.current_mode.get_prompt_indicator()
+        
+        self.console.print()
+        self.console.print(Panel(
+            f"[bold cyan]{mode_type.value.upper()}[/bold cyan] {indicator}",
+            title="Current Mode",
+            expand=False,
+        ))
+        self.console.print()
+        
+        # Show mode-specific info
+        self._display_mode_info(mode_type)
+
+    def _display_mode_info(self, mode_type: ModeType) -> None:
+        """Display information about a specific mode.
+        
+        Args:
+            mode_type: Mode to display info for
+        """
+        mode_info = {
+            ModeType.CHAT: {
+                "emoji": "🔄",
+                "name": "Chat Mode",
+                "description": "Safe mode with confirmations (default)",
+                "features": [
+                    "Asks before each action",
+                    "Shows diff preview",
+                    "Blocks critical operations",
+                    "Always-allow option",
+                ],
+            },
+            ModeType.YAMI: {
+                "emoji": "🚀",
+                "name": "YAMI Mode",
+                "description": "Auto-accept with safety validation",
+                "features": [
+                    "Auto-confirms safe actions",
+                    "Blocks critical operations",
+                    "Warns on high-risk actions",
+                    "Fast iterative workflow",
+                ],
+            },
+            ModeType.PLAN: {
+                "emoji": "📋",
+                "name": "Plan Mode",
+                "description": "Read-only planning and architecture",
+                "features": [
+                    "Generates implementation plans",
+                    "Analyzes code architecture",
+                    "Read-only (no writes)",
+                    "Saves plans to .quirkllm/plans/",
+                ],
+            },
+            ModeType.GHOST: {
+                "emoji": "👻",
+                "name": "Ghost Mode",
+                "description": "Background file watcher",
+                "features": [
+                    "Watches file changes in background",
+                    "Provides real-time analysis",
+                    "Non-intrusive notifications",
+                    "Impact and breaking change detection",
+                ],
+            },
+        }
+        
+        info = mode_info.get(mode_type)
+        if not info:
+            return
+        
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("Feature", style="dim")
+        
+        for feature in info["features"]:
+            table.add_row(f"• {feature}")
+        
+        self.console.print(f"[bold]{info['emoji']} {info['name']}[/bold]: {info['description']}")
+        self.console.print()
+        self.console.print(table)
+        self.console.print()
+        self.console.print("[dim]💡 Tip: Use Shift+Tab to quickly cycle through modes[/dim]\n")
 
     def _cmd_quit(self) -> None:
         """Exit the REPL."""
-        console.print("\n[dim]👋 Goodbye![/dim]\n")
+        self.console.print("\n[dim]👋 Goodbye![/dim]\n")
         self.running = False
 
     def _handle_command(self, input_text: str) -> bool:
@@ -188,24 +450,27 @@ class REPL:
             return False
 
         cmd_name = parts[0].lower()
-        # cmd_args = parts[1] if len(parts) > 1 else ""  # For future use
+        cmd_args = parts[1] if len(parts) > 1 else ""
 
         # Look up command
         cmd = self.commands.get(cmd_name)
         if cmd is None:
-            console.print(
+            self.console.print(
                 f"[red]✗ Unknown command: /{cmd_name}[/red]\n"
                 "[dim]Type [bold]/help[/bold] to see available commands.[/dim]\n"
             )
             return True
 
-        # Execute command
+        # Execute command (pass args for commands that need them)
         try:
+            # Store args for commands that need them
+            self._current_command_args = cmd_args
             cmd.handler()
+            self._current_command_args = ""
         except Exception as e:
-            console.print(f"[red]✗ Command error: {e}[/red]\n")
+            self.console.print(f"[red]✗ Command error: {e}[/red]\n")
             if self.debug:
-                console.print_exception()
+                self.console.print_exception()
 
         return True
 
@@ -216,8 +481,8 @@ class REPL:
             user_input: User's chat message
         """
         # Phase 1: Just echo back (no model yet)
-        console.print("\n[dim]💬 Chat mode not yet implemented (Phase 2).[/dim]")
-        console.print(f"[dim]You said: {user_input}[/dim]\n")
+        self.console.print("\n[dim]💬 Chat mode not yet implemented (Phase 2).[/dim]")
+        self.console.print(f"[dim]You said: {user_input}[/dim]\n")
 
     def run(self) -> None:
         """Start the REPL loop."""
@@ -226,9 +491,9 @@ class REPL:
         try:
             while self.running:
                 try:
-                    # Get user input
+                    # Get user input with dynamic prompt
                     user_input = self.session.prompt(
-                        "quirk> ",
+                        self._get_prompt_text(),
                         # Add styling
                         # style=Style.from_dict({"prompt": "cyan bold"}),
                     ).strip()
@@ -246,7 +511,7 @@ class REPL:
 
                 except KeyboardInterrupt:
                     # Ctrl+C: Clear line and continue
-                    console.print()
+                    self.console.print()
                     continue
 
                 except EOFError:
@@ -255,7 +520,7 @@ class REPL:
                     break
 
         except Exception as e:
-            console.print(f"\n[red]✗ REPL error: {e}[/red]\n")
+            self.console.print(f"\n[red]✗ REPL error: {e}[/red]\n")
             if self.debug:
-                console.print_exception()
+                self.console.print_exception()
             sys.exit(1)
