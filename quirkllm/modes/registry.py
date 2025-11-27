@@ -121,9 +121,13 @@ class ModeRegistry:
         """
         if mode_type not in self._modes:
             raise ValueError(f"Mode {mode_type.value} not registered")
-        
+
         mode_class = self._modes[mode_type]
-        return mode_class(mode_type, config)
+        # Try creating with (mode_type, config), fall back to no params
+        try:
+            return mode_class(mode_type, config)
+        except TypeError:
+            return mode_class()
     
     def set_current(self, mode: ModeBase) -> None:
         """

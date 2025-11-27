@@ -19,7 +19,7 @@ class TestCLIBasics:
     def test_version_flag(self):
         """Test --version flag returns version info."""
         result = subprocess.run(
-            ["poetry", "run", "quirkllm", "--version"],
+            [sys.executable, "-m", "quirkllm", "--version"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -32,7 +32,7 @@ class TestCLIBasics:
     def test_help_flag(self):
         """Test --help flag shows usage information."""
         result = subprocess.run(
-            ["poetry", "run", "quirkllm", "--help"],
+            [sys.executable, "-m", "quirkllm", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -47,7 +47,7 @@ class TestCLIBasics:
         """Test that CLI can start and quit cleanly."""
         # Send /quit command immediately to test startup
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="/quit\n",
             capture_output=True,
             text=True,
@@ -66,7 +66,7 @@ class TestCLICommands:
     def test_help_command(self):
         """Test /help command displays available commands."""
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="/help\n/quit\n",
             capture_output=True,
             text=True,
@@ -81,7 +81,7 @@ class TestCLICommands:
     def test_status_command(self):
         """Test /status command shows system information."""
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="/status\n/quit\n",
             capture_output=True,
             text=True,
@@ -96,7 +96,7 @@ class TestCLICommands:
     def test_quit_command(self):
         """Test /quit command exits cleanly."""
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="/quit\n",
             capture_output=True,
             text=True,
@@ -109,7 +109,7 @@ class TestCLICommands:
         """Test command aliases (?, h, info, stat, exit, q)."""
         # Test ? as help alias
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="?\n/quit\n",
             capture_output=True,
             text=True,
@@ -119,7 +119,7 @@ class TestCLICommands:
 
         # Test q as quit alias
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="q\n",
             capture_output=True,
             text=True,
@@ -130,7 +130,7 @@ class TestCLICommands:
     def test_invalid_command(self):
         """Test that invalid commands are handled gracefully."""
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="/invalidcommand123\n/quit\n",
             capture_output=True,
             text=True,
@@ -148,7 +148,7 @@ class TestCLIFlags:
         """Test --profile flag overrides auto-detection."""
         # Test with beast profile
         result = subprocess.run(
-            ["poetry", "run", "quirkllm", "--profile", "beast"],
+            [sys.executable, "-m", "quirkllm", "--profile", "beast"],
             input="/status\n/quit\n",
             capture_output=True,
             text=True,
@@ -163,7 +163,7 @@ class TestCLIFlags:
     def test_debug_flag(self):
         """Test --debug flag enables debug output."""
         result = subprocess.run(
-            ["poetry", "run", "quirkllm", "--debug"],
+            [sys.executable, "-m", "quirkllm", "--debug"],
             input="/quit\n",
             capture_output=True,
             text=True,
@@ -184,7 +184,7 @@ class TestCLIFlags:
 
         try:
             result = subprocess.run(
-                ["poetry", "run", "quirkllm", "--config", temp_config_path],
+                [sys.executable, "-m", "quirkllm", "--config", temp_config_path],
                 input="/quit\n",
                 capture_output=True,
                 text=True,
@@ -199,7 +199,7 @@ class TestCLIFlags:
     def test_invalid_profile_flag(self):
         """Test that invalid profile names are rejected."""
         result = subprocess.run(
-            ["poetry", "run", "quirkllm", "--profile", "invalid_profile"],
+            [sys.executable, "-m", "quirkllm", "--profile", "invalid_profile"],
             input="/quit\n",
             capture_output=True,
             text=True,
@@ -221,7 +221,7 @@ class TestCLIWorkflow:
     def test_full_workflow_help_status_quit(self):
         """Test complete workflow: startup → /help → /status → /quit."""
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="/help\n/status\n/quit\n",
             capture_output=True,
             text=True,
@@ -238,7 +238,7 @@ class TestCLIWorkflow:
     def test_multiple_status_checks(self):
         """Test that /status can be called multiple times."""
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="/status\n/status\n/status\n/quit\n",
             capture_output=True,
             text=True,
@@ -251,7 +251,7 @@ class TestCLIWorkflow:
     def test_mixed_valid_invalid_commands(self):
         """Test that CLI recovers from invalid commands."""
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="/help\n/invalid\n/status\n/badcommand\n/quit\n",
             capture_output=True,
             text=True,
@@ -268,7 +268,7 @@ class TestCLIOutputFormatting:
     def test_welcome_banner_present(self):
         """Test that welcome banner is displayed on startup."""
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="/quit\n",
             capture_output=True,
             text=True,
@@ -292,7 +292,7 @@ class TestCLIOutputFormatting:
         """Test that NO_COLOR=1 disables ANSI colors."""
         env = {"NO_COLOR": "1"}
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="/help\n/quit\n",
             capture_output=True,
             text=True,
@@ -317,7 +317,7 @@ class TestCLIErrorHandling:
             nonexistent_config = Path(temp_dir) / "nonexistent.yaml"
 
             result = subprocess.run(
-                ["poetry", "run", "quirkllm", "--config", str(nonexistent_config)],
+                [sys.executable, "-m", "quirkllm", "--config", str(nonexistent_config)],
                 input="/quit\n",
                 capture_output=True,
                 text=True,
@@ -332,7 +332,7 @@ class TestCLIErrorHandling:
         # This is hard to test in subprocess, but we verify the CLI
         # accepts the quit command which simulates user wanting to exit
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="/quit\n",
             capture_output=True,
             text=True,
@@ -355,7 +355,7 @@ class TestCLIStartupPerformance:
         start_time = time.time()
 
         result = subprocess.run(
-            ["poetry", "run", "quirkllm", "--version"],
+            [sys.executable, "-m", "quirkllm", "--version"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -374,7 +374,7 @@ class TestCLIStartupPerformance:
         start_time = time.time()
 
         result = subprocess.run(
-            ["poetry", "run", "quirkllm"],
+            [sys.executable, "-m", "quirkllm"],
             input="/quit\n",
             capture_output=True,
             text=True,

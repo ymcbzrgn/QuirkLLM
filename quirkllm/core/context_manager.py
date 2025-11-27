@@ -250,7 +250,7 @@ class ContextManager:
     def get_stats(self) -> dict[str, int | float]:
         """
         Get context statistics.
-        
+
         Returns:
             Dictionary with context stats
         """
@@ -266,3 +266,323 @@ class ContextManager:
             "usage_percentage": self.get_usage_percentage(),
             "warning_level": self.get_warning_level().value,
         }
+
+
+# ==============================================================================
+# Phase 6.6: File Context Manager for Agentic Behavior
+# ==============================================================================
+
+import os
+import re
+from pathlib import Path
+
+
+@dataclass
+class FileContext:
+    """Represents a file loaded into context for LLM prompts.
+
+    Attributes:
+        path: Relative path to the file
+        content: File content
+        language: Programming language
+        line_count: Number of lines
+        token_estimate: Estimated token count
+    """
+
+    path: str
+    content: str
+    language: str
+    line_count: int
+    token_estimate: int = 0
+
+
+@dataclass
+class DirectoryEntry:
+    """Represents an entry in a directory listing.
+
+    Attributes:
+        name: File or directory name
+        is_dir: True if directory
+        size: File size in bytes
+        line_count: Number of lines (for text files)
+        language: Programming language
+    """
+
+    name: str
+    is_dir: bool
+    size: int = 0
+    line_count: int = 0
+    language: str = ""
+
+
+class FileContextManager:
+    """Manage file and directory context for LLM prompts.
+
+    This class provides functionality for agentic behavior:
+    - Load files into context
+    - Generate directory listings
+    - Build context prompts for the LLM
+    - Auto-detect file references in user input
+    """
+
+    LANGUAGE_MAP = {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".jsx": "jsx",
+        ".tsx": "tsx",
+        ".rs": "rust",
+        ".go": "go",
+        ".java": "java",
+        ".c": "c",
+        ".cpp": "cpp",
+        ".h": "c",
+        ".hpp": "cpp",
+        ".cs": "csharp",
+        ".rb": "ruby",
+        ".php": "php",
+        ".swift": "swift",
+        ".kt": "kotlin",
+        ".html": "html",
+        ".css": "css",
+        ".json": "json",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".md": "markdown",
+        ".txt": "text",
+        ".sh": "bash",
+        ".sql": "sql",
+    }
+
+    IGNORE_PATTERNS = {
+        "__pycache__",
+        ".git",
+        ".venv",
+        "venv",
+        "node_modules",
+        ".idea",
+        ".vscode",
+        ".DS_Store",
+        "*.pyc",
+        ".env",
+    }
+
+    def __init__(
+        self,
+        working_dir: Optional[Path] = None,
+        max_context_tokens: int = 4000,
+    ):
+        """Initialize file context manager.
+
+        Args:
+            working_dir: Working directory (default: cwd)
+            max_context_tokens: Maximum tokens for file context
+        """
+        self.working_dir = Path(working_dir or os.getcwd()).resolve()
+        self.max_context_tokens = max_context_tokens
+        self.loaded_files: dict[str, FileContext] = {}
+        self._total_tokens = 0
+
+    def _detect_language(self, path: Path) -> str:
+        """Detect language from file extension."""
+        return self.LANGUAGE_MAP.get(path.suffix.lower(), "")
+
+    def _should_ignore(self, name: str) -> bool:
+        """Check if file/directory should be ignored."""
+        for pattern in self.IGNORE_PATTERNS:
+            if pattern.startswith("*"):
+                if name.endswith(pattern[1:]):
+                    return True
+            elif name == pattern:
+                return True
+        return False
+
+    def load_file(self, path: str) -> Optional[FileContext]:
+        """Load a file into context.
+
+        Args:
+            path: Path to file (relative or absolute)
+
+        Returns:
+            FileContext if loaded, None otherwise
+        """
+        file_path = Path(path)
+        if not file_path.is_absolute():
+            file_path = self.working_dir / file_path
+        file_path = file_path.resolve()
+
+        if not file_path.exists() or not file_path.is_file():
+            return None
+
+        try:
+            rel_path = str(file_path.relative_to(self.working_dir))
+        except ValueError:
+            rel_path = str(file_path)
+
+        if rel_path in self.loaded_files:
+            return self.loaded_files[rel_path]
+
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            token_estimate = len(content) // 4
+
+            if self._total_tokens + token_estimate > self.max_context_tokens:
+                return None
+
+            line_count = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
+
+            context = FileContext(
+                path=rel_path,
+                content=content,
+                language=self._detect_language(file_path),
+                line_count=line_count,
+                token_estimate=token_estimate,
+            )
+
+            self.loaded_files[rel_path] = context
+            self._total_tokens += token_estimate
+            return context
+
+        except (IOError, UnicodeDecodeError):
+            return None
+
+    def unload_file(self, path: str) -> bool:
+        """Remove file from context."""
+        file_path = Path(path)
+        if file_path.is_absolute():
+            try:
+                rel_path = str(file_path.relative_to(self.working_dir))
+            except ValueError:
+                rel_path = path
+        else:
+            rel_path = path
+
+        if rel_path in self.loaded_files:
+            context = self.loaded_files.pop(rel_path)
+            self._total_tokens -= context.token_estimate
+            return True
+        return False
+
+    def clear_files(self) -> None:
+        """Clear all loaded files."""
+        self.loaded_files.clear()
+        self._total_tokens = 0
+
+    def get_cwd_listing(self, max_depth: int = 1) -> list[DirectoryEntry]:
+        """Get directory listing for working directory."""
+        entries: list[DirectoryEntry] = []
+
+        def scan_dir(dir_path: Path, depth: int = 0) -> None:
+            if depth > max_depth:
+                return
+            try:
+                for item in sorted(dir_path.iterdir()):
+                    if self._should_ignore(item.name):
+                        continue
+
+                    if item.is_dir():
+                        entries.append(DirectoryEntry(
+                            name=str(item.relative_to(self.working_dir)) + "/",
+                            is_dir=True,
+                        ))
+                        if depth < max_depth:
+                            scan_dir(item, depth + 1)
+                    else:
+                        try:
+                            size = item.stat().st_size
+                            language = self._detect_language(item)
+                            line_count = 0
+                            if language and size < 50000:
+                                try:
+                                    content = item.read_text(encoding="utf-8")
+                                    line_count = content.count("\n") + 1
+                                except:
+                                    pass
+
+                            entries.append(DirectoryEntry(
+                                name=str(item.relative_to(self.working_dir)),
+                                is_dir=False,
+                                size=size,
+                                line_count=line_count,
+                                language=language,
+                            ))
+                        except OSError:
+                            pass
+            except PermissionError:
+                pass
+
+        scan_dir(self.working_dir)
+        return entries
+
+    def get_directory_listing_text(self) -> str:
+        """Get formatted directory listing."""
+        entries = self.get_cwd_listing()
+        if not entries:
+            return "(empty directory)"
+
+        lines = []
+        for entry in entries:
+            if entry.is_dir:
+                lines.append(f"📁 {entry.name}")
+            else:
+                info = []
+                if entry.line_count:
+                    info.append(f"{entry.line_count} lines")
+                if entry.language:
+                    info.append(entry.language)
+                info_str = f" ({', '.join(info)})" if info else ""
+                lines.append(f"📄 {entry.name}{info_str}")
+
+        return "\n".join(lines)
+
+    def get_file_context_prompt(self) -> str:
+        """Build context section with directory listing and loaded files."""
+        parts = []
+
+        # Directory listing
+        listing = self.get_directory_listing_text()
+        parts.append(f"<directory_listing>\n{listing}\n</directory_listing>")
+
+        # Loaded files
+        for rel_path, ctx in self.loaded_files.items():
+            tag = f'<file path="{rel_path}" lines="{ctx.line_count}"'
+            if ctx.language:
+                tag += f' language="{ctx.language}"'
+            tag += ">"
+            parts.append(f"{tag}\n{ctx.content}\n</file>")
+
+        return "\n\n".join(parts)
+
+    def get_loaded_files_summary(self) -> str:
+        """Get summary of loaded files."""
+        if not self.loaded_files:
+            return "No files loaded."
+
+        lines = ["Loaded files:"]
+        for path, ctx in self.loaded_files.items():
+            lines.append(f"  • {path} ({ctx.line_count} lines, ~{ctx.token_estimate} tokens)")
+        lines.append(f"\nTotal: ~{self._total_tokens}/{self.max_context_tokens} tokens")
+        return "\n".join(lines)
+
+    def auto_detect_files(self, user_input: str) -> list[str]:
+        """Detect file references in user input."""
+        detected = []
+        pattern = r'(?:^|[\s\'"(])([./]?[\w\-./]+\.\w+)(?:[\s\'"),]|$)'
+        matches = re.findall(pattern, user_input)
+
+        for match in matches:
+            file_path = self.working_dir / match
+            if file_path.exists() and file_path.is_file():
+                detected.append(match)
+
+        return detected
+
+    @property
+    def total_tokens(self) -> int:
+        """Total tokens in file context."""
+        return self._total_tokens
+
+    @property
+    def remaining_tokens(self) -> int:
+        """Remaining token capacity."""
+        return self.max_context_tokens - self._total_tokens

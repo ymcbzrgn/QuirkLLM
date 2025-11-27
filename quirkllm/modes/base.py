@@ -162,7 +162,17 @@ class ModeBase(ABC):
     def is_active(self) -> bool:
         """Check if mode is currently active."""
         return self._active
-    
+
+    @property
+    def active(self) -> bool:
+        """Alias for is_active - returns True if mode is active."""
+        return self._active
+
+    @active.setter
+    def active(self, value: bool) -> None:
+        """Set the active state."""
+        self._active = value
+
     @abstractmethod
     def activate(self) -> None:
         """

@@ -30,6 +30,15 @@ htmlcov/
 .quirkllm/
 docs/
 
+# Model files (large, should not be committed)
+*.gguf
+*.bin
+*.safetensors
+models/
+
+# Playground (local testing)
+playground/
+
 # VSCode AI rules
 .github/instructions/codacy.instructions.md
 .github/
@@ -39,3 +48,5 @@ docs/
 .mypy_cache/
 .venv/
 .coverage 2
+.coverage 3
+.DS_Store

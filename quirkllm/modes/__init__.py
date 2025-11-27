@@ -42,3 +42,23 @@ __all__ = [
     "PlanMode",
     "GhostMode",
 ]
+
+
+def _register_modes():
+    """Auto-register all modes on import."""
+    registry = get_registry()
+
+    mode_classes = [
+        (ModeType.CHAT, ChatMode),
+        (ModeType.YAMI, YAMIMode),
+        (ModeType.PLAN, PlanMode),
+        (ModeType.GHOST, GhostMode),
+    ]
+
+    for mode_type, mode_class in mode_classes:
+        if mode_type not in registry._modes:
+            registry.register(mode_type, mode_class)
+
+
+# Auto-register modes when package is imported
+_register_modes()

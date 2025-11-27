@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch, MagicMock
 
 import pytest
 
-from quirkllm.modes.ghost_mode import GhostMode, CodeChangeHandler
+from quirkllm.modes.ghost_mode import GhostMode, CodeChangeHandler, PerformanceMonitor
 from quirkllm.modes.base import (
     ModeType,
     ModeConfig,
@@ -509,3 +509,204 @@ class TestGhostModeIntegration:
             mode.deactivate()
             assert mode.active is False
             assert mock_observer.stop.called
+
+
+class TestPerformanceMonitor:
+    """Tests for PerformanceMonitor class."""
+
+    def test_init_defaults(self):
+        """Test default threshold values."""
+        monitor = PerformanceMonitor()
+
+        assert monitor.cpu_threshold == 80.0
+        assert monitor.ram_threshold == 85.0
+        assert monitor.sample_interval == 1.0
+        assert monitor._running is False
+
+    def test_init_custom_thresholds(self):
+        """Test custom threshold values."""
+        monitor = PerformanceMonitor(
+            cpu_threshold=50.0,
+            ram_threshold=60.0,
+            sample_interval=0.5,
+        )
+
+        assert monitor.cpu_threshold == 50.0
+        assert monitor.ram_threshold == 60.0
+        assert monitor.sample_interval == 0.5
+
+    @patch("quirkllm.modes.ghost_mode.psutil")
+    def test_start_stop(self, mock_psutil):
+        """Test monitor start/stop lifecycle."""
+        mock_psutil.cpu_percent.return_value = 30.0
+        mock_psutil.virtual_memory.return_value = Mock(percent=40.0)
+
+        monitor = PerformanceMonitor(sample_interval=0.1)
+        monitor.start()
+
+        assert monitor._running is True
+        assert monitor._monitor_thread is not None
+
+        monitor.stop()
+
+        assert monitor._running is False
+
+    @patch("quirkllm.modes.ghost_mode.psutil")
+    def test_should_throttle_cpu_high(self, mock_psutil):
+        """Test throttling when CPU exceeds threshold."""
+        mock_psutil.cpu_percent.return_value = 90.0  # Above 80%
+        mock_psutil.virtual_memory.return_value = Mock(percent=50.0)
+
+        monitor = PerformanceMonitor(sample_interval=0.05)
+        monitor.start()
+        time.sleep(0.15)  # Wait for samples
+
+        assert monitor.should_throttle() is True
+        monitor.stop()
+
+    @patch("quirkllm.modes.ghost_mode.psutil")
+    def test_should_throttle_ram_high(self, mock_psutil):
+        """Test throttling when RAM exceeds threshold."""
+        mock_psutil.cpu_percent.return_value = 30.0
+        mock_psutil.virtual_memory.return_value = Mock(percent=90.0)  # Above 85%
+
+        monitor = PerformanceMonitor(sample_interval=0.05)
+        monitor.start()
+        time.sleep(0.15)
+
+        assert monitor.should_throttle() is True
+        monitor.stop()
+
+    def test_get_stats_returns_copy(self):
+        """Test get_stats returns a safe copy."""
+        monitor = PerformanceMonitor()
+        stats = monitor.get_stats()
+
+        # Modify returned stats
+        stats["cpu_percent"] = 999
+
+        # Original should be unchanged
+        assert monitor._stats["cpu_percent"] == 0.0
+
+    @patch("quirkllm.modes.ghost_mode.psutil")
+    def test_throttle_count_increments(self, mock_psutil):
+        """Test throttle count increments on state change."""
+        # Start with low values
+        mock_psutil.cpu_percent.return_value = 30.0
+        mock_psutil.virtual_memory.return_value = Mock(percent=40.0)
+
+        monitor = PerformanceMonitor(sample_interval=0.05, cpu_threshold=50.0)
+        monitor.start()
+        time.sleep(0.1)
+
+        # Now trigger high CPU
+        mock_psutil.cpu_percent.return_value = 90.0
+        time.sleep(0.15)
+
+        stats = monitor.get_stats()
+        assert stats["throttle_count"] >= 1
+        monitor.stop()
+
+
+class TestGhostModePerformanceIntegration:
+    """Tests for Ghost Mode + PerformanceMonitor integration."""
+
+    def test_ghost_mode_creates_perf_monitor_by_default(self):
+        """Test Ghost Mode creates PerformanceMonitor by default."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mode = GhostMode(watch_dir=tmpdir)
+
+            assert mode.enable_perf_monitor is True
+            assert mode.perf_monitor is not None
+            assert isinstance(mode.perf_monitor, PerformanceMonitor)
+
+    def test_ghost_mode_without_perf_monitor(self):
+        """Test Ghost Mode can disable perf monitor."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mode = GhostMode(watch_dir=tmpdir, enable_perf_monitor=False)
+
+            assert mode.enable_perf_monitor is False
+            assert mode.perf_monitor is None
+
+    @patch("quirkllm.modes.ghost_mode.Observer")
+    @patch("quirkllm.modes.ghost_mode.Console")
+    @patch("quirkllm.modes.ghost_mode.psutil")
+    def test_perf_monitor_starts_on_activate(
+        self, mock_psutil, mock_console_class, mock_observer_class
+    ):
+        """Test perf monitor starts when Ghost Mode activates."""
+        mock_psutil.cpu_percent.return_value = 30.0
+        mock_psutil.virtual_memory.return_value = Mock(percent=40.0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mode = GhostMode(watch_dir=tmpdir, enable_perf_monitor=True)
+            mode.activate()
+
+            assert mode.perf_monitor._running is True
+
+            mode.deactivate()
+
+    @patch("quirkllm.modes.ghost_mode.Observer")
+    @patch("quirkllm.modes.ghost_mode.Console")
+    @patch("quirkllm.modes.ghost_mode.psutil")
+    def test_perf_monitor_stops_on_deactivate(
+        self, mock_psutil, mock_console_class, mock_observer_class
+    ):
+        """Test perf monitor stops when Ghost Mode deactivates."""
+        mock_psutil.cpu_percent.return_value = 30.0
+        mock_psutil.virtual_memory.return_value = Mock(percent=40.0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mode = GhostMode(watch_dir=tmpdir, enable_perf_monitor=True)
+            mode.activate()
+            mode.deactivate()
+
+            assert mode.perf_monitor._running is False
+
+    @patch("quirkllm.modes.ghost_mode.Observer")
+    @patch("quirkllm.modes.ghost_mode.Console")
+    @patch("quirkllm.modes.ghost_mode.psutil")
+    def test_session_stats_include_perf_data(
+        self, mock_psutil, mock_console_class, mock_observer_class
+    ):
+        """Test session stats include performance metrics."""
+        mock_psutil.cpu_percent.return_value = 30.0
+        mock_psutil.virtual_memory.return_value = Mock(percent=40.0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mode = GhostMode(watch_dir=tmpdir, enable_perf_monitor=True)
+            mode.activate()
+            time.sleep(0.1)  # Let monitor run
+
+            stats = mode.get_session_stats()
+
+            assert "perf_cpu_percent" in stats
+            assert "perf_ram_percent" in stats
+            assert "perf_throttle_count" in stats
+            assert "perf_samples" in stats
+
+            mode.deactivate()
+
+    @patch("quirkllm.modes.ghost_mode.Observer")
+    @patch("quirkllm.modes.ghost_mode.Console")
+    @patch("quirkllm.modes.ghost_mode.psutil")
+    def test_throttle_skips_file_change(
+        self, mock_psutil, mock_console_class, mock_observer_class
+    ):
+        """Test file changes are skipped when throttled."""
+        # High CPU to trigger throttle
+        mock_psutil.cpu_percent.return_value = 95.0
+        mock_psutil.virtual_memory.return_value = Mock(percent=50.0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mode = GhostMode(watch_dir=tmpdir, enable_perf_monitor=True)
+            mode.activate()
+            time.sleep(0.15)  # Let monitor detect high CPU
+
+            # File change should be skipped
+            mode._on_file_changed("/path/test.py", "modified")
+
+            # Queue should be empty because throttled
+            assert len(mode.analysis_queue) == 0
+
+            mode.deactivate()

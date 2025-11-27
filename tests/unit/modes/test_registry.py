@@ -18,34 +18,40 @@ from quirkllm.modes.registry import ModeRegistry, get_registry
 # Test mode implementations
 class TestChatMode(ModeBase):
     """Mock Chat mode for testing."""
-    
+
+    def __init__(self, mode_type=None, config=None):
+        super().__init__(mode_type or ModeType.CHAT, config)
+
     def activate(self):
         super().activate()
         self.activated_count = getattr(self, 'activated_count', 0) + 1
-    
+
     def deactivate(self):
         super().deactivate()
         self.deactivated_count = getattr(self, 'deactivated_count', 0) + 1
-    
+
     def handle_action(self, action: ActionRequest) -> ActionResult:
         return ActionResult(success=True, message="Chat handled action")
-    
+
     def get_prompt_indicator(self) -> str:
         return "💬"
 
 
 class TestYAMIMode(ModeBase):
     """Mock YAMI mode for testing."""
-    
+
+    def __init__(self, mode_type=None, config=None):
+        super().__init__(mode_type or ModeType.YAMI, config)
+
     def activate(self):
         super().activate()
-    
+
     def deactivate(self):
         super().deactivate()
-    
+
     def handle_action(self, action: ActionRequest) -> ActionResult:
         return ActionResult(success=True, message="YAMI handled action")
-    
+
     def get_prompt_indicator(self) -> str:
         return "⚡"
 

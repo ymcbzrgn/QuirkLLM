@@ -490,6 +490,89 @@ Siz kodunuzu IDE'nizde yazarken arka planda sessizce çalışır. Dosyayı kayde
    > Fix it? (y/n)
 ```
 
+## 🔄 Mod Değiştirme
+
+### Shift+Tab ile Hızlı Geçiş
+```bash
+quirk> Shift+Tab
+🚀 YAMI MODE activated
+
+quirk> Shift+Tab
+📋 PLAN MODE activated
+
+quirk> Shift+Tab
+👻 GHOST MODE activated
+
+quirk> Shift+Tab
+💬 CHAT MODE activated (başa döner)
+```
+
+### /mode Komutu ile
+```bash
+quirk> /mode yami
+🚀 Switched to YAMI MODE
+   Auto-confirm: ON (critical ops still blocked)
+
+quirk> /mode plan
+📋 Switched to PLAN MODE
+   Read-only: ON (no file changes)
+
+quirk> /mode ghost
+👻 Switched to GHOST MODE
+   File watcher: Starting...
+
+quirk> /mode chat
+💬 Switched to CHAT MODE (default)
+   Confirmations: ON
+```
+
+## 🛡️ Safety Best Practices
+
+### YAMI Mode Güvenlik Katmanları
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  YAMI MODE SAFETY LAYERS                                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ❌ BLOCKED (Critical Risk - Score 90-100)                   │
+│  ──────────────────────────────────────────                  │
+│  • rm -rf /                                                  │
+│  • :(){ :|:& };: (fork bomb)                                │
+│  • dd if=/dev/zero of=/dev/sda                              │
+│  • chmod -R 777 /                                           │
+│  • mkfs.ext4 /dev/sda                                       │
+│  • shutdown, reboot, halt                                   │
+│                                                              │
+│  ⚠️ WARNED (High Risk - Score 60-89)                         │
+│  ──────────────────────────────────────────                  │
+│  • curl | bash (pipe to shell)                              │
+│  • chmod 777 (world writable)                               │
+│  • git push --force                                         │
+│  • docker run --privileged                                  │
+│  • nc -e (reverse shell)                                    │
+│                                                              │
+│  ✅ AUTO-ACCEPTED (Medium/Low Risk - Score 0-59)             │
+│  ──────────────────────────────────────────                  │
+│  • npm install, yarn add                                    │
+│  • git commit, git push                                     │
+│  • File create/edit/delete (non-system)                     │
+│  • Run tests, build commands                                │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Mod Seçim Rehberi
+
+| Senaryo | Önerilen Mod | Neden |
+|---------|--------------|-------|
+| Yeni özellik geliştirme | 💬 Chat | Onay ile güvenli |
+| Hızlı bug fix | 🚀 YAMI | Hızlı, auto-accept |
+| Büyük refactoring öncesi | 📋 Plan | Sadece analiz |
+| Kod yazarken arka plan | 👻 Ghost | Pasif izleme |
+| Öğrenme/debug | 💬 Chat | Açıklamalı |
+| CI/CD scripts | 🚀 YAMI | Otomatik |
+
 ---
 
 # 🆚 NEDEN QUIRKLLM?

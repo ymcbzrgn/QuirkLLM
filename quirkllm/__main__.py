@@ -11,6 +11,21 @@ from rich.table import Table
 from quirkllm.cli.repl import REPL
 from quirkllm.core.profile_manager import ProfileConfig, select_profile
 from quirkllm.core.system_detector import SystemInfo, detect_system
+import quirkllm.modes  # Auto-register modes
+
+# MCP imports (lazy loaded)
+def _start_mcp_server():
+    """Start MCP server for Claude Desktop."""
+    import asyncio
+    from quirkllm.mcp.server import MCPServer
+    server = MCPServer()
+    asyncio.run(server.start())
+
+
+def _install_mcp_config():
+    """Install MCP configuration for Claude Desktop."""
+    from quirkllm.mcp.config import install_config
+    return install_config()
 
 console = Console()
 
@@ -93,12 +108,47 @@ def display_welcome_banner(system_info: "SystemInfo", profile_config: ProfileCon
     type=click.Path(exists=False, dir_okay=False, path_type=Path),
     help="Path to custom config file (default: ~/.quirkllm/config.yaml)",
 )
-def main(profile: str | None, debug: bool, config: Path | None) -> None:
+@click.option(
+    "--mcp",
+    is_flag=True,
+    help="Start as MCP server for Claude Desktop integration",
+)
+@click.option(
+    "--mcp-config",
+    is_flag=True,
+    help="Install MCP configuration for Claude Desktop",
+)
+@click.option(
+    "--model-path",
+    type=click.Path(exists=False, dir_okay=False, path_type=Path),
+    help="Path to GGUF model file for chat inference",
+)
+def main(profile: str | None, debug: bool, config: Path | None, mcp: bool, mcp_config: bool, model_path: Path | None) -> None:
     """QuirkLLM - RAM-Aware AI Coding Assistant.
 
     An adaptive local AI assistant that adjusts its behavior based on
     available system resources.
     """
+    # Handle MCP options first (early exit)
+    if mcp_config:
+        try:
+            path = _install_mcp_config()
+            console.print(f"[green]✓ MCP config installed to {path}[/green]")
+            console.print("[dim]Restart Claude Desktop to apply changes.[/dim]")
+            return
+        except Exception as e:
+            console.print(f"[red]✗ Failed to install MCP config: {e}[/red]")
+            sys.exit(1)
+
+    if mcp:
+        try:
+            _start_mcp_server()
+            return
+        except Exception as e:
+            # MCP server errors go to stderr (not visible in normal mode)
+            print(f"MCP server error: {e}", file=sys.stderr)
+            sys.exit(1)
+
     try:
         # Detect system resources
         if debug:
@@ -124,6 +174,7 @@ def main(profile: str | None, debug: bool, config: Path | None) -> None:
             system_info=system_info,
             profile_config=profile_config,
             debug=debug,
+            model_path=str(model_path) if model_path else None,
         )
         repl.run()
 

@@ -97,7 +97,8 @@ class FileManager:
         backup_id = self._get_backup_id()
         
         # Create backup subdirectory for this file
-        relative_path = file_path.relative_to(self.project_root)
+        # Resolve both paths to handle symlinks (e.g., /var -> /private/var on macOS)
+        relative_path = file_path.resolve().relative_to(self.project_root)
         file_backup_dir = self.backup_dir / str(relative_path).replace(os.sep, "_")
         file_backup_dir.mkdir(parents=True, exist_ok=True)
         
@@ -337,8 +338,8 @@ class FileManager:
         if not path.is_absolute():
             path = self.project_root / path
         
-        # Find backup
-        relative_path = path.relative_to(self.project_root)
+        # Find backup - resolve to handle symlinks
+        relative_path = path.resolve().relative_to(self.project_root)
         file_backup_dir = self.backup_dir / str(relative_path).replace(os.sep, "_")
         
         backup_path = file_backup_dir / f"{backup_id}.txt"
@@ -359,9 +360,9 @@ class FileManager:
         if not path.is_absolute():
             path = self.project_root / path
         
-        relative_path = path.relative_to(self.project_root)
+        relative_path = path.resolve().relative_to(self.project_root)
         file_backup_dir = self.backup_dir / str(relative_path).replace(os.sep, "_")
-        
+
         return [file_backup_dir] if file_backup_dir.exists() else []
     
     def _load_backup_from_metadata(self, metadata_file: Path) -> Optional[Backup]:

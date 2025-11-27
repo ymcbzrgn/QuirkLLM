@@ -34,6 +34,21 @@ CODE_CHUNKS_SCHEMA = pa.schema([
     pa.field("metadata_json", pa.string()),  # Additional metadata as JSON
 ])
 
+# Schema for documents table (web pages, PDFs)
+DOCUMENTS_SCHEMA = pa.schema([
+    pa.field("id", pa.string()),
+    pa.field("content", pa.string()),
+    pa.field("embedding", pa.list_(pa.float32(), 384)),  # 384-dim for all-MiniLM-L6-v2
+    pa.field("source_id", pa.string()),  # Reference to KnowledgeSource
+    pa.field("source_type", pa.string()),  # "web" or "pdf"
+    pa.field("source_url", pa.string()),  # URL or file path
+    pa.field("title", pa.string()),
+    pa.field("page_num", pa.int32()),  # Page number (PDF) or 0 (web)
+    pa.field("chunk_index", pa.int32()),
+    pa.field("total_chunks", pa.int32()),
+    pa.field("metadata_json", pa.string()),
+])
+
 
 @dataclass
 class CodeChunk:
@@ -84,6 +99,53 @@ class SearchResult:
     metadata: Dict[str, Any]
 
 
+@dataclass
+class DocumentChunk:
+    """Document chunk for web/PDF content."""
+    id: str
+    content: str
+    embedding: np.ndarray
+    source_id: str
+    source_type: str  # "web" or "pdf"
+    source_url: str
+    title: str
+    page_num: int = 0
+    chunk_index: int = 0
+    total_chunks: int = 1
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for LanceDB insertion."""
+        return {
+            "id": self.id,
+            "content": self.content,
+            "embedding": self.embedding.tolist() if isinstance(self.embedding, np.ndarray) else self.embedding,
+            "source_id": self.source_id,
+            "source_type": self.source_type,
+            "source_url": self.source_url,
+            "title": self.title,
+            "page_num": self.page_num,
+            "chunk_index": self.chunk_index,
+            "total_chunks": self.total_chunks,
+            "metadata_json": json.dumps(self.metadata),
+        }
+
+
+@dataclass
+class DocumentSearchResult:
+    """Search result from documents table."""
+    id: str
+    content: str
+    source_id: str
+    source_type: str
+    source_url: str
+    title: str
+    score: float
+    page_num: int
+    chunk_index: int
+    metadata: Dict[str, Any]
+
+
 class LanceDBStore:
     """
     LanceDB vector store for code chunks.
@@ -110,6 +172,10 @@ class LanceDBStore:
         if "code_chunks" not in self.db.table_names():
             # Create empty table with schema
             self.db.create_table("code_chunks", schema=CODE_CHUNKS_SCHEMA, mode="create")
+
+        # Create documents table if it doesn't exist (Phase 5.3)
+        if "documents" not in self.db.table_names():
+            self.db.create_table("documents", schema=DOCUMENTS_SCHEMA, mode="create")
     
     def add_code_chunk(self, chunk: CodeChunk) -> bool:
         """
@@ -324,3 +390,147 @@ class LanceDBStore:
         except Exception as e:
             print(f"Error getting by file: {e}")
             return []
+
+    # =========================================================================
+    # Document Methods (Phase 5.3 - Knowledge Eater)
+    # =========================================================================
+
+    def add_document_chunks(self, chunks: List[DocumentChunk]) -> int:
+        """
+        Add document chunks (web pages, PDFs) to the database.
+
+        Args:
+            chunks: List of DocumentChunk objects
+
+        Returns:
+            Number of chunks successfully added
+        """
+        if not chunks:
+            return 0
+
+        try:
+            table = self.db.open_table("documents")
+            data = [chunk.to_dict() for chunk in chunks]
+            table.add(data)
+            return len(chunks)
+        except Exception as e:
+            print(f"Error adding document chunks: {e}")
+            return 0
+
+    def search_documents(
+        self,
+        query_embedding: np.ndarray,
+        k: int = 10,
+        source_type: Optional[str] = None
+    ) -> List[DocumentSearchResult]:
+        """
+        Semantic search for document chunks.
+
+        Args:
+            query_embedding: Query vector
+            k: Number of results to return
+            source_type: Optional filter by "web" or "pdf"
+
+        Returns:
+            List of DocumentSearchResult objects, sorted by relevance
+        """
+        try:
+            table = self.db.open_table("documents")
+
+            # Convert embedding to list
+            query_vector = query_embedding.tolist() if isinstance(query_embedding, np.ndarray) else query_embedding
+
+            # Build search query
+            search_query = table.search(query_vector).limit(k)
+
+            # Apply source_type filter if provided
+            if source_type:
+                search_query = search_query.where(f"source_type = '{source_type}'")
+
+            # Execute search
+            results = search_query.to_list()
+
+            # Convert to DocumentSearchResult objects
+            search_results = []
+            for result in results:
+                search_results.append(DocumentSearchResult(
+                    id=result["id"],
+                    content=result["content"],
+                    source_id=result["source_id"],
+                    source_type=result["source_type"],
+                    source_url=result["source_url"],
+                    title=result["title"],
+                    score=float(result.get("_distance", 0.0)),
+                    page_num=result["page_num"],
+                    chunk_index=result["chunk_index"],
+                    metadata=json.loads(result.get("metadata_json", "{}")),
+                ))
+
+            return search_results
+        except Exception as e:
+            print(f"Error searching documents: {e}")
+            return []
+
+    def delete_by_source_id(self, source_id: str) -> int:
+        """
+        Delete all document chunks belonging to a source.
+
+        Used by KnowledgeManager.forget_source() to remove ingested content.
+
+        Args:
+            source_id: Source identifier (hash of URL/path)
+
+        Returns:
+            Number of chunks deleted
+        """
+        try:
+            table = self.db.open_table("documents")
+
+            # Get count before deletion
+            before_count = table.count_rows()
+
+            # Delete rows matching source_id
+            table.delete(f"source_id = '{source_id}'")
+
+            # Get count after deletion
+            after_count = table.count_rows()
+
+            return before_count - after_count
+        except Exception as e:
+            print(f"Error deleting by source_id: {e}")
+            return 0
+
+    def get_document_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics for documents table.
+
+        Returns:
+            Dictionary with total_documents, by_type, by_source, etc.
+        """
+        try:
+            table = self.db.open_table("documents")
+            total = table.count_rows()
+
+            stats = {
+                "total_chunks": total,
+                "by_type": {},
+                "by_source": {},
+            }
+
+            if total > 0:
+                data = table.to_pandas()
+
+                # Count by source_type
+                stats["by_type"] = data["source_type"].value_counts().to_dict()
+
+                # Count by source_id
+                stats["by_source"] = data["source_id"].value_counts().to_dict()
+
+            return stats
+        except Exception as e:
+            print(f"Error getting document stats: {e}")
+            return {
+                "total_chunks": 0,
+                "by_type": {},
+                "by_source": {},
+            }

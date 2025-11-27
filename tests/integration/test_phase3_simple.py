@@ -165,5 +165,137 @@ class TestPerformanceBenchmarks:
         print(f"\nProject analysis completed in {elapsed:.3f}s")
 
 
+class TestRAGSystem:
+    """Test RAG system components with correct API."""
+
+    def test_chunk_code_basic(self):
+        """Test chunk_code splits code correctly."""
+        from quirkllm.rag.embeddings import chunk_code
+
+        code = """def hello():
+    print("Hello")
+
+def world():
+    print("World")
+"""
+        chunks = chunk_code(code)
+
+        assert len(chunks) >= 1
+        # Each chunk is (text, start_line, end_line)
+        assert all(len(c) == 3 for c in chunks)
+        assert all(isinstance(c[0], str) for c in chunks)
+
+    def test_embedding_generator_initialization(self):
+        """Test EmbeddingGenerator initializes correctly."""
+        from quirkllm.rag.embeddings import EmbeddingGenerator
+
+        embedder = EmbeddingGenerator("survival")
+
+        assert embedder.get_model_name() == "all-MiniLM-L6-v2"
+        assert embedder.get_embedding_dim() == 384
+
+    def test_embed_query(self):
+        """Test query embedding generation."""
+        from quirkllm.rag.embeddings import EmbeddingGenerator
+
+        embedder = EmbeddingGenerator("survival")
+        query_emb = embedder.embed_query("test query")
+
+        assert query_emb.shape == (384,)
+
+    def test_embed_batch(self):
+        """Test batch embedding generation."""
+        from quirkllm.rag.embeddings import EmbeddingGenerator
+
+        embedder = EmbeddingGenerator("survival")
+        texts = ["hello world", "foo bar"]
+        embeddings = embedder.embed_batch(texts)
+
+        assert len(embeddings) == 2
+        assert all(len(emb) == 384 for emb in embeddings)
+
+    def test_lancedb_store_crud(self):
+        """Test LanceDBStore basic CRUD operations."""
+        import tempfile
+        from quirkllm.rag.lancedb_store import LanceDBStore, CodeChunk
+        from quirkllm.rag.embeddings import EmbeddingGenerator
+
+        embedder = EmbeddingGenerator("survival")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = LanceDBStore(tmpdir)
+
+            # Create chunk
+            query_emb = embedder.embed_query("test code")
+            chunk = CodeChunk(
+                id="test1",
+                content="def hello(): pass",
+                embedding=query_emb.tolist(),
+                file_path="test.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+                metadata={"project": "test"}
+            )
+
+            # Add
+            result = store.add_code_chunk(chunk)
+            assert result is True
+
+            # Search
+            results = store.search(query_emb, k=1)
+            assert len(results) >= 1
+
+    def test_end_to_end_rag_pipeline(self):
+        """Test complete RAG pipeline: chunk -> embed -> store -> search."""
+        import tempfile
+        from quirkllm.rag.embeddings import EmbeddingGenerator, chunk_code
+        from quirkllm.rag.lancedb_store import LanceDBStore, CodeChunk
+
+        # Sample code
+        code = """
+def calculate_sum(a, b):
+    return a + b
+
+def calculate_product(a, b):
+    return a * b
+"""
+        # 1. Chunk code
+        chunks = chunk_code(code)
+        assert len(chunks) >= 1
+
+        # 2. Generate embeddings
+        embedder = EmbeddingGenerator("survival")
+        chunk_texts = [c[0] for c in chunks]
+        embeddings = embedder.embed_batch(chunk_texts)
+
+        # 3. Store in LanceDB
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = LanceDBStore(tmpdir)
+
+            for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+                code_chunk = CodeChunk(
+                    id=f"chunk_{i}",
+                    content=chunk[0],
+                    embedding=emb.tolist(),
+                    file_path="math_utils.py",
+                    start_line=chunk[1],
+                    end_line=chunk[2],
+                    language="python",
+                    metadata={}
+                )
+                store.add_code_chunk(code_chunk)
+
+            # 4. Search
+            query = "function to add numbers"
+            query_emb = embedder.embed_query(query)
+            results = store.search(query_emb, k=3)
+
+            assert len(results) >= 1
+            # Should find relevant code
+            assert any("sum" in r.content.lower() or "add" in r.content.lower()
+                      for r in results)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-s"])

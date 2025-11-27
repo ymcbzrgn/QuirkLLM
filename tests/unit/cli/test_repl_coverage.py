@@ -8,13 +8,20 @@ Covers:
 - EOFError handling (Ctrl+D)
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 
 import pytest
 
 from quirkllm.cli.repl import REPL
 from quirkllm.core.profile_manager import ProfileConfig
 from quirkllm.core.system_detector import SystemInfo
+
+
+@pytest.fixture(autouse=True)
+def mock_mode_initialization():
+    """Mock mode initialization to avoid registry issues."""
+    with patch.object(REPL, "_initialize_mode"):
+        yield
 
 
 @pytest.fixture
@@ -83,14 +90,15 @@ class TestREPLExceptionHandling:
 
         repl.commands["test_cmd"] = Mock(handler=bad_handler)
 
-        # Mock console.print_exception to verify it's called
-        with patch.object(repl, "debug", True):
-            with patch("quirkllm.cli.repl.console") as mock_console:
-                repl._handle_command("/test_cmd")
+        # Mock console to verify print_exception is called in debug mode
+        mock_console = Mock()
+        repl.console = mock_console
 
-                # In debug mode, print_exception should be called
-                # (We can't directly check this without accessing console,
-                # but the test ensures the debug branch executes)
+        with patch.object(repl, "debug", True):
+            repl._handle_command("/test_cmd")
+
+        # In debug mode, print_exception should be called
+        mock_console.print_exception.assert_called()
 
     def test_run_loop_exception_handling(self, mock_system_info, mock_profile_config):
         """Test that run loop exceptions are handled."""
@@ -160,16 +168,16 @@ class TestREPLExceptionHandling:
             # Should have called prompt 3 times
             assert mock_prompt.call_count == 3
 
-    def test_handle_chat_not_implemented(self, mock_system_info, mock_profile_config, capsys):
-        """Test that chat messages show not implemented message."""
+    def test_handle_chat_no_model_loaded(self, mock_system_info, mock_profile_config, capsys):
+        """Test that chat messages show 'no model loaded' when backend not available."""
         repl = REPL(mock_system_info, mock_profile_config)
 
-        # Handle a chat message
+        # Handle a chat message (no model loaded)
         repl._handle_chat("Hello world")
 
         captured = capsys.readouterr()
-        assert "not yet implemented" in captured.out.lower()
-        assert "Hello world" in captured.out
+        assert "no model loaded" in captured.out.lower()
+        assert "--model-path" in captured.out
 
     def test_unknown_command(self, mock_system_info, mock_profile_config, capsys):
         """Test that unknown commands show error message."""

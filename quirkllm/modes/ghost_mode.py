@@ -31,9 +31,10 @@ Technical Features:
 import time
 from pathlib import Path
 from typing import List, Optional, Callable, Dict, Any
-from threading import Event, Lock
+from threading import Event, Lock, Thread
 from datetime import datetime
 
+import psutil
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -47,6 +48,110 @@ from quirkllm.modes.base import (
     ActionRequest,
     ActionResult,
 )
+
+
+class PerformanceMonitor:
+    """
+    Monitor CPU/RAM usage with auto-throttling support.
+
+    Runs a background thread that samples CPU and RAM usage at
+    configurable intervals. When usage exceeds thresholds, it
+    signals that the system should throttle non-critical operations.
+
+    Attributes:
+        cpu_threshold: CPU percentage above which to throttle (default: 80%)
+        ram_threshold: RAM percentage above which to throttle (default: 85%)
+        sample_interval: Seconds between samples (default: 1.0)
+    """
+
+    def __init__(
+        self,
+        cpu_threshold: float = 80.0,
+        ram_threshold: float = 85.0,
+        sample_interval: float = 1.0,
+    ) -> None:
+        """
+        Initialize performance monitor.
+
+        Args:
+            cpu_threshold: CPU percentage to trigger throttling
+            ram_threshold: RAM percentage to trigger throttling
+            sample_interval: Seconds between usage samples
+        """
+        self.cpu_threshold = cpu_threshold
+        self.ram_threshold = ram_threshold
+        self.sample_interval = sample_interval
+
+        self._running = False
+        self._monitor_thread: Optional[Thread] = None
+        self._lock = Lock()
+
+        self._stats: Dict[str, Any] = {
+            "cpu_percent": 0.0,
+            "ram_percent": 0.0,
+            "is_throttled": False,
+            "throttle_count": 0,
+            "samples": 0,
+        }
+
+    def start(self) -> None:
+        """Start background monitoring thread."""
+        if self._running:
+            return
+        self._running = True
+        self._monitor_thread = Thread(target=self._monitor_loop, daemon=True)
+        self._monitor_thread.start()
+
+    def stop(self) -> None:
+        """Stop monitoring and cleanup."""
+        self._running = False
+        if self._monitor_thread:
+            self._monitor_thread.join(timeout=2.0)
+            self._monitor_thread = None
+
+    def _monitor_loop(self) -> None:
+        """Background monitoring loop - samples CPU/RAM and updates throttle state."""
+        while self._running:
+            try:
+                cpu = psutil.cpu_percent(interval=self.sample_interval)
+                ram = psutil.virtual_memory().percent
+
+                with self._lock:
+                    self._stats["cpu_percent"] = cpu
+                    self._stats["ram_percent"] = ram
+                    self._stats["samples"] += 1
+
+                    was_throttled = self._stats["is_throttled"]
+                    should_throttle = cpu > self.cpu_threshold or ram > self.ram_threshold
+
+                    if should_throttle and not was_throttled:
+                        self._stats["is_throttled"] = True
+                        self._stats["throttle_count"] += 1
+                    elif not should_throttle and was_throttled:
+                        self._stats["is_throttled"] = False
+
+            except Exception:
+                pass  # Fail silently, monitoring is non-critical
+
+    def should_throttle(self) -> bool:
+        """
+        Check if system should be throttled.
+
+        Returns:
+            True if CPU or RAM exceeds threshold
+        """
+        with self._lock:
+            return self._stats["is_throttled"]
+
+    def get_stats(self) -> Dict[str, Any]:
+        """
+        Return current performance stats.
+
+        Returns:
+            Dict with cpu_percent, ram_percent, is_throttled, throttle_count, samples
+        """
+        with self._lock:
+            return self._stats.copy()
 
 
 class CodeChangeHandler(FileSystemEventHandler):
@@ -221,15 +326,21 @@ class GhostMode(ModeBase):
         watch_dir: str = ".",
         patterns: Optional[List[str]] = None,
         debounce_ms: int = 500,
+        enable_perf_monitor: bool = True,
+        cpu_threshold: float = 80.0,
+        ram_threshold: float = 85.0,
         **kwargs: Any
     ) -> None:
         """
         Initialize Ghost mode.
-        
+
         Args:
             watch_dir: Directory to watch for changes
             patterns: Glob patterns to watch (defaults to DEFAULT_PATTERNS)
             debounce_ms: Debounce delay in milliseconds
+            enable_perf_monitor: Enable CPU/RAM performance monitoring
+            cpu_threshold: CPU percentage to trigger throttling (default: 80%)
+            ram_threshold: RAM percentage to trigger throttling (default: 85%)
             **kwargs: Additional configuration options
         """
         # Ghost config: background watch, read-only, auto-confirm
@@ -248,13 +359,22 @@ class GhostMode(ModeBase):
         self.watching = Event()
         self.analysis_queue: List[Dict[str, Any]] = []
         self.queue_lock = Lock()
-        
+
         # Session statistics
         self.session_stats: Dict[str, Any] = {
             "changes_detected": 0,
             "files_analyzed": 0,
             "watcher_active": False,
         }
+
+        # Performance monitoring
+        self.enable_perf_monitor = enable_perf_monitor
+        self.perf_monitor: Optional[PerformanceMonitor] = None
+        if enable_perf_monitor:
+            self.perf_monitor = PerformanceMonitor(
+                cpu_threshold=cpu_threshold,
+                ram_threshold=ram_threshold,
+            )
     
     def activate(self) -> None:
         """
@@ -293,35 +413,49 @@ class GhostMode(ModeBase):
         
         # Start file watcher
         self._start_watching()
-    
+
+        # Start performance monitoring
+        if self.perf_monitor:
+            self.perf_monitor.start()
+            self.console.print("[dim]📊 Performance monitoring active[/dim]")
+
     def deactivate(self) -> None:
         """
         Deactivate Ghost mode and stop file watcher.
-        
+
         Stops background thread and displays session summary with
         detected changes and analysis queue.
         """
         self._active = False
         self.watching.clear()
         self.session_stats["watcher_active"] = False
-        
+
+        # Stop performance monitor first
+        if self.perf_monitor:
+            self.perf_monitor.stop()
+
         # Stop observer
         if self.observer:
             self.observer.stop()
             self.observer.join(timeout=2.0)
-        
+
         # Display session summary
         if self.session_stats["changes_detected"] > 0:
             summary_table = Table(title="Ghost Mode Session Summary", show_header=True)
             summary_table.add_column("Metric", style="cyan")
             summary_table.add_column("Count", style="green", justify="right")
-            
+
             summary_table.add_row("Changes Detected", str(self.session_stats["changes_detected"]))
             summary_table.add_row("Files in Queue", str(len(self.analysis_queue)))
-            
+
+            # Add perf stats if available
+            if self.perf_monitor:
+                perf_stats = self.perf_monitor.get_stats()
+                summary_table.add_row("Throttle Events", str(perf_stats["throttle_count"]))
+
             self.console.print("\n")
             self.console.print(summary_table)
-            
+
             # Show recent changes
             if self.analysis_queue:
                 self.console.print("\n[purple]Recent Changes:[/]")
@@ -331,7 +465,7 @@ class GhostMode(ModeBase):
                     self.console.print(f"  [dim]• {filepath} ({event_type})[/]")
         else:
             self.console.print("\n[dim]No changes detected in this session[/]")
-        
+
         self.console.print("\n[dim]Ghost mode deactivated[/]")
     
     def handle_action(self, request: ActionRequest) -> ActionResult:
@@ -415,14 +549,18 @@ class GhostMode(ModeBase):
     def _on_file_changed(self, filepath: str, event_type: str) -> None:
         """
         Callback when a watched file changes.
-        
+
         Adds change to analysis queue and updates statistics.
         In full implementation, would trigger background analysis.
-        
+
         Args:
             filepath: Absolute path to changed file
             event_type: Type of event (created, modified, deleted)
         """
+        # Throttle check - skip analysis when system is under load
+        if self.perf_monitor and self.perf_monitor.should_throttle():
+            return
+
         # Add to analysis queue
         with self.queue_lock:
             self.analysis_queue.append({
@@ -508,12 +646,23 @@ class GhostMode(ModeBase):
     
     def get_session_stats(self) -> Dict[str, Any]:
         """
-        Get current session statistics.
-        
+        Get current session statistics including performance data.
+
         Returns:
-            Dictionary with changes_detected, files_analyzed, watcher_active
+            Dictionary with changes_detected, files_analyzed, watcher_active,
+            and perf_* metrics if performance monitoring is enabled.
         """
-        return self.session_stats.copy()
+        stats = self.session_stats.copy()
+
+        # Add performance metrics if available
+        if self.perf_monitor:
+            perf = self.perf_monitor.get_stats()
+            stats["perf_cpu_percent"] = perf["cpu_percent"]
+            stats["perf_ram_percent"] = perf["ram_percent"]
+            stats["perf_throttle_count"] = perf["throttle_count"]
+            stats["perf_samples"] = perf["samples"]
+
+        return stats
     
     def get_analysis_queue(self) -> List[Dict[str, Any]]:
         """

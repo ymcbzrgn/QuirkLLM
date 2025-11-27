@@ -38,13 +38,21 @@ class TestBackendFactory:
         assert backend is not None
         assert isinstance(backend, Backend)
 
-    def test_factory_raises_for_unimplemented(self):
-        """Factory should raise NotImplementedError for LLAMACPP/MLX."""
-        with pytest.raises(NotImplementedError, match="Phase 2"):
-            create_backend(BackendType.LLAMACPP)
+    def test_factory_creates_llamacpp_backend(self):
+        """Factory should create LlamaCppBackend correctly."""
+        backend = create_backend(BackendType.LLAMACPP)
+        assert backend is not None
+        assert isinstance(backend, Backend)
 
-        with pytest.raises(NotImplementedError, match="Phase 2"):
-            create_backend(BackendType.MLX)
+    def test_factory_creates_mlx_backend(self):
+        """Factory should create MLXBackend correctly (requires MLX installed)."""
+        try:
+            backend = create_backend(BackendType.MLX)
+            assert backend is not None
+            assert isinstance(backend, Backend)
+        except RuntimeError as e:
+            if "MLX not installed" in str(e):
+                pytest.skip("MLX not installed")
 
 
 class TestBackendLifecycle:

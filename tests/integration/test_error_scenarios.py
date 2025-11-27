@@ -7,6 +7,7 @@ Unit-level edge cases are covered in unit tests.
 
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -20,7 +21,7 @@ class TestCLIErrorHandling:
     def test_cli_with_invalid_profile_argument(self):
         """CLI should handle invalid --profile argument gracefully."""
         result = subprocess.run(
-            ["quirkllm", "--profile", "invalid_profile_name"],
+            [sys.executable, "-m", "quirkllm", "--profile", "invalid_profile_name"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -37,7 +38,7 @@ class TestCLIErrorHandling:
         nonexistent_path = "/tmp/definitely_does_not_exist_12345.yaml"
 
         result = subprocess.run(
-            ["quirkllm", "--config", nonexistent_path, "--version"],
+            [sys.executable, "-m", "quirkllm", "--config", nonexistent_path, "--version"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -56,7 +57,7 @@ class TestCLIErrorHandling:
         try:
             # CLI should handle conflicts
             result = subprocess.run(
-                ["quirkllm", "--profile", "beast", "--config", config_path, "--version"],
+                [sys.executable, "-m", "quirkllm", "--profile", "beast", "--config", config_path, "--version"],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -70,7 +71,7 @@ class TestCLIErrorHandling:
     def test_cli_with_invalid_command_sequence(self):
         """CLI should reject invalid command sequences."""
         result = subprocess.run(
-            ["quirkllm", "--invalid-flag", "--another-bad-flag"],
+            [sys.executable, "-m", "quirkllm", "--invalid-flag", "--another-bad-flag"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -176,15 +177,21 @@ class TestBackendErrorRecovery:
         backend.unload_model()
         assert not backend.is_loaded()
 
-    def test_backend_unimplemented_types_raise_clear_errors(self):
-        """Unimplemented backend types should provide clear errors."""
-        from quirkllm.backends.base import BackendType, create_backend
+    def test_backend_types_are_implemented(self):
+        """Backend types LLAMACPP and MLX are now implemented."""
+        from quirkllm.backends.base import Backend, BackendType, create_backend
 
-        with pytest.raises(NotImplementedError, match="Phase 2"):
-            create_backend(BackendType.LLAMACPP)
+        # LLAMACPP backend is implemented
+        llamacpp = create_backend(BackendType.LLAMACPP)
+        assert isinstance(llamacpp, Backend)
 
-        with pytest.raises(NotImplementedError, match="Phase 2"):
-            create_backend(BackendType.MLX)
+        # MLX backend requires MLX to be installed
+        try:
+            mlx = create_backend(BackendType.MLX)
+            assert isinstance(mlx, Backend)
+        except RuntimeError as e:
+            if "MLX not installed" in str(e):
+                pytest.skip("MLX not installed")
 
 
 class TestFileSystemEdgeCases:
@@ -223,7 +230,7 @@ class TestEndToEndErrorScenarios:
 
         try:
             result = subprocess.run(
-                ["quirkllm", "--config", bad_config_dir, "--version"],
+                [sys.executable, "-m", "quirkllm", "--config", bad_config_dir, "--version"],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -239,7 +246,7 @@ class TestEndToEndErrorScenarios:
         long_name = "a" * 10000
 
         result = subprocess.run(
-            ["quirkllm", "--profile", long_name],
+            [sys.executable, "-m", "quirkllm", "--profile", long_name],
             capture_output=True,
             text=True,
             timeout=10,
